@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using Sirenix.OdinInspector;
 using UnityEngine;
 
 public class Board : MonoBehaviour {
@@ -11,7 +10,7 @@ public class Board : MonoBehaviour {
     public int sideLength;
     public GameObject tilePrefab;
     //A two-dimensional array created for the object at that column and row.
-    [ShowInInspector]public GameObject[,] AllXmarksPos;
+    public GameObject[,] AllXmarksPos;
 
     private void Start() {
         I = this;

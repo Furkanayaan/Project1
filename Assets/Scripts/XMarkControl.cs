@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using Sirenix.OdinInspector;
 using UnityEngine;
 
 public class XMarkControl : MonoBehaviour {
@@ -11,9 +10,9 @@ public class XMarkControl : MonoBehaviour {
     //A struct that holds all X mark, the column of the X mark, and the row of the X mark.
     [Serializable]
     public struct allMarks {
-        [ShowInInspector]public List<Transform> mark;
-        [ShowInInspector]public List<int> column;
-        [ShowInInspector]public List<int> row;
+        public List<Transform> mark;
+        public List<int> column;
+        public List<int> row;
 
         public void Initialize() {
             mark = new();
