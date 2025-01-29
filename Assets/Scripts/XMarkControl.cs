@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 public class XMarkControl : MonoBehaviour {
@@ -10,46 +11,25 @@ public class XMarkControl : MonoBehaviour {
     //A struct that holds all X mark, the column of the X mark, and the row of the X mark.
     [Serializable]
     public struct allMarks {
-        public List<Transform> mark;
-        public List<int> column;
-        public List<int> row;
+        public Dictionary<Transform, Vector2Int> marks;
 
         public void Initialize() {
-            mark = new();
-            column = new();
-            row = new();
-        }
-        //The function that adds items to the lists.
-        public void Add(Transform xMarkTransform, int markColumn, int markRow) {
-            mark.Add(xMarkTransform);
-            column.Add(markColumn);
-            row.Add(markRow);
-        }
-        
-        //The function that returns the column of the specified X mark.
-        public int XMarkColumn(Transform xMarkTransform) {
-            if (xMarkTransform == null) return -1;
-            int index = mark.IndexOf(xMarkTransform);
-            if (index == -1) return -1;
-            return column[index];
+            marks = new();
         }
 
-        //The function that returns the row of the specified X mark.
-        public int XMarkRow(Transform xMarkTransform) {
-            if (xMarkTransform == null) return -1;
-            int index = mark.IndexOf(xMarkTransform);
-            if (index == -1) return -1;
-            return row[index];
+        public void Add(Transform xMarkTransform, int markColumn, int markRow) {
+            marks[xMarkTransform] = new Vector2Int(markColumn, markRow);
         }
-        
-        //The function that removes the specified X mark from all lists.
-        public void RemoveAtIndex(Transform xMarkTransform) {
-            if(xMarkTransform == null) return;
-            int index = mark.IndexOf(xMarkTransform);
-            if(index == -1) return;
-            mark.RemoveAt(index);
-            column.RemoveAt(index);
-            row.RemoveAt(index);
+
+        public Vector2Int? GetPosition(Transform xMarkTransform) {
+            if (marks.TryGetValue(xMarkTransform, out Vector2Int pos)) {
+                return pos;
+            }
+            return null;
+        }
+
+        public void Remove(Transform xMarkTransform) {
+            marks.Remove(xMarkTransform);
         }
     }
 
@@ -71,8 +51,8 @@ public class XMarkControl : MonoBehaviour {
             if (hit.collider != null && hit.transform.childCount < 1) {
                 GameObject mark = Instantiate(XMark, Vector2.zero, Quaternion.identity, hit.transform);
                 mark.transform.localPosition = Vector2.zero;
-                int column = (int)hit.transform.position.x;
-                int row = (int)hit.transform.position.y;
+                int column = Mathf.RoundToInt(hit.transform.position.x);
+                int row = Mathf.RoundToInt(hit.transform.position.y);
                 if (Board.I.XMarkRowColumn(column, row) == null) {
                     Board.I.AllXmarksPos[column, row] = mark;
                     SallMarks.Add(mark.transform, column, row);
@@ -84,57 +64,75 @@ public class XMarkControl : MonoBehaviour {
 
     //The function that checks for matched X marks and adds them to the list.
     public void SetMatches() {
-        for (int i = 0; i < SallMarks.mark.Count; i++) {
+        //Stores the previously visited "X Mark" objects.
+        HashSet<Transform> checkedMarks = new();
+        //Conversion of the Keys list into a list.
+        List<Transform> allMarks = SallMarks.marks.Keys.ToList();
+
+        for (int i = 0; i < allMarks.Count; i++) {
+            Transform xMark = allMarks[i];
+            if (checkedMarks.Contains(xMark)) continue;
+            //Stores the "X Mark" objects that are connected to the starting mark.
             List<Transform> matchedMark = new();
-            Transform xMark = SallMarks.mark[i];
-            int markColumn = SallMarks.column[i];
-            int markRow = SallMarks.row[i];
-            
-            //The specified X mark being added to a local list after being checked.
-            if(!matchedMark.Contains(xMark)) matchedMark.Add(xMark);
-            
-            //Checking the tile to the right.
-            if (markColumn + 1 < Board.I.sideLength) {
-                Transform rightXMark = Board.I.XMarkRowColumn(markColumn + 1, markRow);
-                //If there is an X mark here and it is not in the local list.
-                if (rightXMark != null && !matchedMark.Contains(rightXMark)) matchedMark.Add(rightXMark);
-            }
-            //Checking the tile to the left.
-            if (markColumn -1 >= 0) {
-                Transform leftXMark = Board.I.XMarkRowColumn(markColumn - 1, markRow);
-                //If there is an X mark here and it is not in the local list.
-                if (leftXMark != null && !matchedMark.Contains(leftXMark)) matchedMark.Add(leftXMark);
-            }
-            //Checking the tile to the up.
-            if (markRow +1 < Board.I.sideLength) {
-                Transform upXMark = Board.I.XMarkRowColumn(markColumn, markRow+1);
-                //If there is an X mark here and it is not in the local list.
-                if (upXMark != null && !matchedMark.Contains(upXMark)) matchedMark.Add(upXMark);
-            }
-            //Checking the tile to the down
-            if (markRow -1 >= 0) {
-                Transform downXMark = Board.I.XMarkRowColumn(markColumn, markRow-1);
-                //If there is an X mark here and it is not in the local list.
-                if (downXMark != null && !matchedMark.Contains(downXMark)) matchedMark.Add(downXMark);
-            }
-            
-            //If the number of elements in the local list is 3 or more, add them to the list for the matching process.
+            ScanNeighbors(xMark, matchedMark, checkedMarks);
+
             if (matchedMark.Count >= 3) {
-                for (int j = 0; j < matchedMark.Count ; j++) {
-                    if(!destroyObjects.Contains(matchedMark[j])) destroyObjects.Add(matchedMark[j]);
+                for (int j = 0; j < matchedMark.Count; j++) {
+                    if (!destroyObjects.Contains(matchedMark[j])) {
+                        destroyObjects.Add(matchedMark[j]);
+                    }
+                }
+            }
+        }
+    }
+
+    //The function that implements a Breadth-First Search (BFS) to find and collect all the connected "X Marks"
+    void ScanNeighbors(Transform markTransform, List<Transform> matchedMark, HashSet<Transform> checkedMarks) {
+        Queue<Transform> queue = new();
+        queue.Enqueue(markTransform);
+
+        while (queue.Count > 0) {
+            Transform current = queue.Dequeue();
+            if (checkedMarks.Contains(current)) continue;
+
+            checkedMarks.Add(current);
+            matchedMark.Add(current);
+
+            Vector2Int? pos = SallMarks.GetPosition(current);
+            if (pos == null) continue;
+            int x = pos.Value.x, y = pos.Value.y;
+            //Control all directions such as up,down,left,right
+            Vector2Int[] allDirections = { 
+                Vector2Int.right, 
+                Vector2Int.left,
+                Vector2Int.up, 
+                Vector2Int.down,
+            };
+
+            for (int i = 0; i < allDirections.Length; i++) {
+                int newX = x + allDirections[i].x;
+                int newY = y + allDirections[i].y;
+
+                if (newX < 0 || newX >= Board.I.sideLength || newY < 0 || newY >= Board.I.sideLength) continue;
+
+                Transform neighbor = Board.I.XMarkRowColumn(newX, newY);
+                if (neighbor != null && !checkedMarks.Contains(neighbor)) {
+                    queue.Enqueue(neighbor);
                 }
             }
         }
     }
     
-    //The function that performs the destroy operation and removes the item from the list in the struct.
+    //The function that performs the destroy operation and removes the item from the dictionary in the struct.
     public void DestroyMatches() {
-        for (int i = destroyObjects.Count-1; i >= 0; i--) {
-            int destroyColumn = SallMarks.XMarkColumn(destroyObjects[i]);
-            int destroyRow = SallMarks.XMarkRow(destroyObjects[i]);
-            Board.I.AllXmarksPos[destroyColumn, destroyRow] = null;
-            SallMarks.RemoveAtIndex(destroyObjects[i]);
-            Destroy(destroyObjects[i].gameObject);
+        for (int i = destroyObjects.Count - 1; i >= 0; i--) {
+            Transform obj = destroyObjects[i];
+            Vector2Int? pos = SallMarks.GetPosition(obj);
+            if (pos == null) continue;
+
+            Board.I.AllXmarksPos[pos.Value.x, pos.Value.y] = null;
+            SallMarks.Remove(obj);
+            Destroy(obj.gameObject);
             destroyObjects.RemoveAt(i);
         }
     }
