@@ -13,14 +13,16 @@ public class UIManager : MonoBehaviour
 
     void Start() {
         inputField.text = storedValue.ToString();
+        //Assigning the function that will execute when the button is clicked.
         button.onClick.AddListener(OnButtonClick);
     }
 
     void OnButtonClick() {
-        if (int.TryParse(inputField.text, out int newValue))
-        {
+        //Assigning the value from the input field to a static value.
+        if (int.TryParse(inputField.text, out int newValue)) {
             storedValue = newValue;
         }
+        //Rebuilding the scene
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
     }
 }
