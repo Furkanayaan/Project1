@@ -3,20 +3,15 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 public class XMarkControl : MonoBehaviour {
-    public GameObject XMark;
-    //A list that holds the matched objects.
-    public List<Transform> destroyObjects = new();
-    //A struct that holds all X mark, the column of the X mark, and the row of the X mark.
+    
     [Serializable]
-    public struct allMarks {
-        public Dictionary<Transform, Vector2Int> marks;
-
-        public void Initialize() {
-            marks = new();
-        }
-
+    public class allMarks {
+        //A dictionary that allows us to store the column and row from the transform
+        public Dictionary<Transform, Vector2Int> marks = new();
+        
         public void Add(Transform xMarkTransform, int markColumn, int markRow) {
             marks[xMarkTransform] = new Vector2Int(markColumn, markRow);
         }
@@ -33,33 +28,31 @@ public class XMarkControl : MonoBehaviour {
         }
     }
 
-    public allMarks SallMarks;
-    void Start() {
-        SallMarks.Initialize();
-    }
+    public allMarks CallMarks = new();
+    
     void Update() {
         ClickFunc();
-        SetMatches();
-        DestroyMatches();
     }
 
     //The function that places the X mark on top of the tiles. 
     public void ClickFunc() {
-        if (Input.GetMouseButtonDown(0)) {
-            Vector2 mousePosition = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-            RaycastHit2D hit = Physics2D.Raycast(mousePosition, Vector2.zero);
-            if (hit.collider != null && hit.transform.childCount < 1) {
-                GameObject mark = Instantiate(XMark, Vector2.zero, Quaternion.identity, hit.transform);
-                mark.transform.localPosition = Vector2.zero;
-                int column = Mathf.RoundToInt(hit.transform.position.x);
-                int row = Mathf.RoundToInt(hit.transform.position.y);
-                if (Board.I.XMarkRowColumn(column, row) == null) {
-                    Board.I.AllXmarksPos[column, row] = mark;
-                    SallMarks.Add(mark.transform, column, row);
-                }
-                
+        if (!Input.GetMouseButtonDown(0)) return;
+
+        Vector2 mousePosition = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+        RaycastHit2D hit = Physics2D.Raycast(mousePosition, Vector2.zero);
+        if (hit.collider != null) {
+            int column = Mathf.RoundToInt(hit.transform.position.x);
+            int row = Mathf.RoundToInt(hit.transform.position.y);
+            
+            if (Board.I.XMarkRowColumn(column, row) == null) {
+                Transform mark = ObjectPooling.I.CobjectPool.GetPooledObject();
+                mark.transform.position = hit.transform.position;
+                Board.I.AllXmarksPos[column, row] = mark.gameObject;
+                CallMarks.Add(mark.transform, column, row);
+                SetMatches();
             }
         }
+        
     }
 
     //The function that checks for matched X marks and adds them to the list.
@@ -67,7 +60,7 @@ public class XMarkControl : MonoBehaviour {
         //Stores the previously visited "X Mark" objects.
         HashSet<Transform> checkedMarks = new();
         //Conversion of the Keys list into a list.
-        List<Transform> allMarks = SallMarks.marks.Keys.ToList();
+        List<Transform> allMarks = CallMarks.marks.Keys.ToList();
 
         for (int i = 0; i < allMarks.Count; i++) {
             Transform xMark = allMarks[i];
@@ -75,12 +68,18 @@ public class XMarkControl : MonoBehaviour {
             //Stores the "X Mark" objects that are connected to the starting mark.
             List<Transform> matchedMark = new();
             ScanNeighbors(xMark, matchedMark, checkedMarks);
-
             if (matchedMark.Count >= 3) {
-                for (int j = 0; j < matchedMark.Count; j++) {
-                    if (!destroyObjects.Contains(matchedMark[j])) {
-                        destroyObjects.Add(matchedMark[j]);
-                    }
+                for (int j = 0; j < matchedMark.Count ; j++) {
+                    Transform obj = matchedMark[j];
+                    Vector2Int? pos = CallMarks.GetPosition(obj);
+                    if (pos == null) continue;
+                    
+                    //Set the GameObject in the current column and row to null.
+                    Board.I.AllXmarksPos[pos.Value.x, pos.Value.y] = null;
+                    //Removing X mark from dictionary
+                    CallMarks.Remove(obj);
+                    //Deactivate the active X mark.
+                    ObjectPooling.I.CobjectPool.ReturnToPool(obj.gameObject);
                 }
             }
         }
@@ -98,7 +97,7 @@ public class XMarkControl : MonoBehaviour {
             checkedMarks.Add(current);
             matchedMark.Add(current);
 
-            Vector2Int? pos = SallMarks.GetPosition(current);
+            Vector2Int? pos = CallMarks.GetPosition(current);
             if (pos == null) continue;
             int x = pos.Value.x, y = pos.Value.y;
             //Control all directions such as up,down,left,right
@@ -120,20 +119,6 @@ public class XMarkControl : MonoBehaviour {
                     queue.Enqueue(neighbor);
                 }
             }
-        }
-    }
-    
-    //The function that performs the destroy operation and removes the item from the dictionary in the struct.
-    public void DestroyMatches() {
-        for (int i = destroyObjects.Count - 1; i >= 0; i--) {
-            Transform obj = destroyObjects[i];
-            Vector2Int? pos = SallMarks.GetPosition(obj);
-            if (pos == null) continue;
-
-            Board.I.AllXmarksPos[pos.Value.x, pos.Value.y] = null;
-            SallMarks.Remove(obj);
-            Destroy(obj.gameObject);
-            destroyObjects.RemoveAt(i);
         }
     }
 }
